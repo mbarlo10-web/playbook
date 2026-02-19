@@ -1,4 +1,4 @@
-# VibeCheck
+# PlayBook
 
 AI-powered group trip planning for Scottsdale (Spring Training, Bachelorette, WM Phoenix Open).
 
