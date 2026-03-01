@@ -602,26 +602,12 @@ def category_reservation_providers(category: str, provider_name: str = "") -> st
     """
     Human-friendly hint for how bookings are coordinated.
 
-    In this MVP, PlayBook hands off to external booking sites (OpenTable, Resy,
-    Ticketmaster, etc.) via links or search, rather than booking directly via APIs.
+    Messaging focuses on PlayBook handling reservations, without exposing
+    underlying booking links or APIs.
     """
     category = (category or "").lower()
     pretty_name = (provider_name or "").strip()
     name = pretty_name.lower()
-
-    def with_search(label: str) -> str:
-        """
-        Attach a generic booking/search link for the venue so users can execute.
-        """
-        if not pretty_name or pretty_name.lower().startswith("your choice"):
-            return label
-        query = quote_plus(f"{pretty_name} Scottsdale reservations")
-        url = f"https://www.google.com/search?q={query}"
-        return (
-            f'{label} · '
-            f'<a href="{url}" target="_blank" '
-            f'style="color:#ffd166; text-decoration:underline;">View booking options</a>'
-        )
 
     # Concerts, WMPO, stadium/arena/ballpark-style events -> tickets via PlayBook.
     concert_keywords = (
@@ -634,36 +620,36 @@ def category_reservation_providers(category: str, provider_name: str = "") -> st
         "game",
     )
     if any(k in name for k in concert_keywords):
-        return with_search("PlayBook will book tickets via Ticketmaster or event site")
+        return "PlayBook will book tickets via Ticketmaster or event site"
 
     # Golf-specific booking via PlayBook.
     if category == "golf":
-        return with_search("PlayBook will book tee times via GolfNow")
+        return "PlayBook will book tee times via GolfNow"
 
     # Ball games that are categorized as baseball.
     if category == "baseball":
-        return with_search("PlayBook will book tickets via MLB or Ticketmaster")
+        return "PlayBook will book tickets via MLB or Ticketmaster"
 
     # Topgolf / PopStroke / Puttshack and similar golf-entertainment venues.
     if any(k in name for k in ("topgolf", "popstroke", "puttshack")):
-        return with_search("PlayBook will handle reservations")
+        return "PlayBook will handle reservations"
 
     # Dining / brunch / nightlife (restaurants, bars, clubs).
     if category in {"dining", "brunch", "nightlife"}:
-        return with_search("PlayBook will book via OpenTable, Resy, or venue")
+        return "PlayBook will book via OpenTable, Resy, or venue"
 
     if category == "activity":
-        return with_search("PlayBook will handle booking")
+        return "PlayBook will handle booking"
     if category == "spa":
-        return with_search("PlayBook will book via resort or spa site")
+        return "PlayBook will book via resort or spa site"
     if category == "pool":
-        return with_search("PlayBook will book resort or daybed reservation")
+        return "PlayBook will book resort or daybed reservation"
     if category == "shopping":
-        return with_search("PlayBook will coordinate shopping stops")
+        return "PlayBook will coordinate shopping stops"
     if category == "transport":
         if pretty_name:
-            return with_search(f"PlayBook will arrange {pretty_name}")
-        return with_search("PlayBook will arrange transportation")
+            return f"PlayBook will arrange {pretty_name}"
+        return "PlayBook will arrange transportation"
     return ""
 
 
@@ -2250,14 +2236,6 @@ def _render_one_slot(s: Dict[str, Any], venues: List[Dict[str, Any]], theme: str
     left, right = st.columns([0.82, 0.18])
     
     with left:
-        # Combine booking hint and venue blurb into a single, easy-to-read line.
-        if blurb:
-            if providers:
-                providers_line = f"{providers} • {blurb}"
-            else:
-                providers_line = blurb
-        else:
-            providers_line = providers
         st.markdown(
             f"""
             <div class="card slot-card" style="margin-top: -14px;">
@@ -2268,7 +2246,8 @@ def _render_one_slot(s: Dict[str, Any], venues: List[Dict[str, Any]], theme: str
                 </div>
               </div>
               <div style="margin-top:10px; font-size:20px; font-weight:800;">{vname}</div>
-              <div style="margin-top:6px; opacity:0.9;">{providers_line}{travel_note}</div>
+              <div style="margin-top:6px; opacity:0.9;">{blurb}</div>
+              <div style="margin-top:2px; opacity:0.85; font-size:14px;">{providers}{travel_note}</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -2337,6 +2316,16 @@ def _render_one_slot(s: Dict[str, Any], venues: List[Dict[str, Any]], theme: str
             )
             options = [a["name"] for a in alts]
             pick = st.radio("Alternative", options, key=f"swap_pick_{sid}", horizontal=True, label_visibility="collapsed")
+
+            # Show short blurbs for each alternative to help organizers compare options.
+            for alt in alts:
+                blurb = venue_short_blurb(alt)
+                if not blurb:
+                    continue
+                st.markdown(
+                    f'<div style="margin-top:4px; font-size:13px; opacity:0.85;"><strong>{alt.get("name", "")}:</strong> {blurb}</div>',
+                    unsafe_allow_html=True,
+                )
             if st.button("Apply swap", key=f"apply_swap_{sid}"):
                 chosen = next((a for a in alts if a["name"] == pick), None)
                 if chosen:
@@ -2906,7 +2895,7 @@ if current_page == "welcome":
                             )
                         st.rerun()
 
-    g1, g2 = st.columns([0.65, 0.35], vertical_alignment="top")
+    g1, g2 = st.columns([0.7, 0.3], vertical_alignment="top")
     with g1:
         # Check if we have a trip with votes that need reconciliation
         trip_id = st.session_state.get("trip_id")
@@ -3021,7 +3010,9 @@ if current_page == "welcome":
                 st.session_state.last_error = str(e)
 
     with g2:
-        if st.button("Reset", use_container_width=True):
+        # Small spacer so the Reset button aligns visually with the share link row above.
+        st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+        if st.button("Reset", key="btn_reset_all", use_container_width=False):
             for k in list(st.session_state.keys()):
                 del st.session_state[k]
             init_state()
