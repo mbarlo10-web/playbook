@@ -2645,14 +2645,9 @@ if current_page == "welcome":
                 '</div>',
                 unsafe_allow_html=True,
             )
-            view_col, gen_col = st.columns(2)
-            with view_col:
-                if st.button("View Vote Results", key="btn_view_results_active", use_container_width=True, type="primary"):
-                    st.session_state.page = "vote_results"
-                    st.rerun()
-            with gen_col:
-                share_link = f"http://localhost:8502/?trip={trip_id}"
-                _share_link_with_copy(share_link, "gen", label="Share link")
+            if st.button("View Vote Results", key="btn_view_results_active", use_container_width=True, type="primary"):
+                st.session_state.page = "vote_results"
+                st.rerun()
         else:
             st.session_state.trip_id = None
 
