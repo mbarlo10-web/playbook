@@ -12,7 +12,7 @@ In `secrets.toml` you must have a **`[stripe]`** section and **`payment_link`** 
 
 ```toml
 [stripe]
-payment_link = "https://buy.stripe.com/test_cNifZbchj20o4vB0Pq2go00"
+payment_link = "https://buy.stripe.com/test_xxxxxxxxxxxx"
 ```
 
 - Use **your** test link from the Stripe Dashboard (replace the URL above if needed).

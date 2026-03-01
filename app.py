@@ -8,6 +8,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote_plus
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -599,13 +600,28 @@ def get_stripe_payment_link() -> str:
 
 def category_reservation_providers(category: str, provider_name: str = "") -> str:
     """
-    Human-friendly hint for how bookings are handled.
-    
-    PlayBook handles all bookings via APIs (OpenTable, Resy, Ticketmaster, etc.),
-    so these messages indicate what PlayBook will book, not what the user needs to do.
+    Human-friendly hint for how bookings are coordinated.
+
+    In this MVP, PlayBook hands off to external booking sites (OpenTable, Resy,
+    Ticketmaster, etc.) via links or search, rather than booking directly via APIs.
     """
     category = (category or "").lower()
-    name = (provider_name or "").strip().lower()
+    pretty_name = (provider_name or "").strip()
+    name = pretty_name.lower()
+
+    def with_search(label: str) -> str:
+        """
+        Attach a generic booking/search link for the venue so users can execute.
+        """
+        if not pretty_name or pretty_name.lower().startswith("your choice"):
+            return label
+        query = quote_plus(f"{pretty_name} Scottsdale reservations")
+        url = f"https://www.google.com/search?q={query}"
+        return (
+            f'{label} · '
+            f'<a href="{url}" target="_blank" '
+            f'style="color:#ffd166; text-decoration:underline;">View booking options</a>'
+        )
 
     # Concerts, WMPO, stadium/arena/ballpark-style events -> tickets via PlayBook.
     concert_keywords = (
@@ -618,37 +634,84 @@ def category_reservation_providers(category: str, provider_name: str = "") -> st
         "game",
     )
     if any(k in name for k in concert_keywords):
-        return "PlayBook will book tickets via Ticketmaster or event site"
+        return with_search("PlayBook will book tickets via Ticketmaster or event site")
 
     # Golf-specific booking via PlayBook.
     if category == "golf":
-        return "PlayBook will book tee times via GolfNow"
+        return with_search("PlayBook will book tee times via GolfNow")
 
     # Ball games that are categorized as baseball.
     if category == "baseball":
-        return "PlayBook will book tickets via MLB or Ticketmaster"
+        return with_search("PlayBook will book tickets via MLB or Ticketmaster")
 
     # Topgolf / PopStroke / Puttshack and similar golf-entertainment venues.
     if any(k in name for k in ("topgolf", "popstroke", "puttshack")):
-        return "PlayBook will handle reservations"
+        return with_search("PlayBook will handle reservations")
 
     # Dining / brunch / nightlife (restaurants, bars, clubs).
     if category in {"dining", "brunch", "nightlife"}:
-        return "PlayBook will book via OpenTable, Resy, or venue"
+        return with_search("PlayBook will book via OpenTable, Resy, or venue")
 
     if category == "activity":
-        return "PlayBook will handle booking"
+        return with_search("PlayBook will handle booking")
     if category == "spa":
-        return "PlayBook will book via resort or spa site"
+        return with_search("PlayBook will book via resort or spa site")
     if category == "pool":
-        return "PlayBook will book resort or daybed reservation"
+        return with_search("PlayBook will book resort or daybed reservation")
     if category == "shopping":
-        return "PlayBook will coordinate shopping stops"
+        return with_search("PlayBook will coordinate shopping stops")
     if category == "transport":
-        pretty_name = provider_name.strip() if provider_name else ""
         if pretty_name:
-            return f"PlayBook will arrange {pretty_name}"
-        return "PlayBook will arrange transportation"
+            return with_search(f"PlayBook will arrange {pretty_name}")
+        return with_search("PlayBook will arrange transportation")
+    return ""
+
+
+def venue_short_blurb(venue: Dict[str, Any]) -> str:
+    """
+    Short, human-friendly description for key venues, with fallbacks by category/vibe.
+    """
+    if not isinstance(venue, dict):
+        return ""
+    name = (venue.get("name") or "").strip()
+    key = name.lower()
+    category = (venue.get("category") or "").lower()
+    vibes = [str(x).lower() for x in (venue.get("vibes") or [])]
+
+    known: Dict[str, str] = {
+        "bottle blonde": "High-energy Old Town bar with DJs, bottle service, and a big party crowd.",
+        "bottle blonde - old town": "High-energy Old Town bar with DJs, bottle service, and a big party crowd.",
+        "culinary dropout": "Casual gastropub with comfort food, cocktails, and yard games.",
+        "culinary dropout - scottsdale": "Casual gastropub with comfort food, cocktails, and yard games.",
+        "dierks bentley's whiskey row": "Country-themed party bar with loud music, dancing, and shots.",
+        "hi fi kitchen & cocktails": "Lively bar with big screens, music, and late-night drinks.",
+        "the montauk": "Beach-house style spot for brunch, cocktails, and a social crowd.",
+        "maya dayclub": "Dayclub with DJs, cabanas, and big pool-party energy.",
+        "kazimierz wine & whiskey bar": "Cozy, dimly lit spot for wine, whiskey, and live music.",
+        "diego pops": "Colorful taco spot with margaritas and a fun patio.",
+        "farm & craft": "Health-leaning spot with bowls, cocktails, and a bright patio.",
+        "the mission": "Upscale Latin restaurant known for tacos, margaritas, and dim, stylish vibes.",
+        "postino highland": "Wine bar with bruschetta boards and a relaxed patio scene.",
+    }
+    if key in known:
+        return known[key]
+
+    if category in {"dining", "brunch"}:
+        if "foodie" in vibes:
+            return "Popular Scottsdale restaurant with shareable plates, cocktails, and group-friendly seating."
+        return "Casual spot for easy group meals and drinks."
+    if category == "nightlife":
+        if "party" in vibes or "dancing" in vibes:
+            return "High-energy nightlife spot for drinks, DJs, and dancing."
+        return "Laid-back bar for drinks and music with the crew."
+    if category in {"pool"}:
+        return "Pool scene with drinks, music, and space for the group to hang."
+    if category in {"spa"}:
+        return "Spa setting focused on relaxing treatments and reset time."
+    if category in {"golf"}:
+        return "Scottsdale golf round for the group—tee times and course time together."
+    if category in {"activity"}:
+        return "Scottsdale group activity to break up the day with something memorable."
     return ""
 
 
@@ -680,6 +743,23 @@ def filter_venues(
     active_aliases = {"active", "hiking", "gym", "outdoor", "fitness"}
     party_aliases = {"party", "drinks", "dancing"}
     out: List[Dict[str, Any]] = []
+
+    # Derive a simple max price tier based on the user's budget range.
+    # This makes budget a hard pre-generation constraint instead of a soft hint.
+    max_price_tier: Optional[int] = None
+    try:
+        budget_max_raw = st.session_state.get("budget_max", 0)
+        budget_max = int(budget_max_raw) if budget_max_raw is not None else 0
+    except (TypeError, ValueError):
+        budget_max = 0
+    if budget_max:
+        if budget_max <= 800:
+            max_price_tier = 2
+        elif budget_max <= 1200:
+            max_price_tier = 3
+        else:
+            max_price_tier = 4
+
     for v in venues:
         if not isinstance(v, dict):
             continue
@@ -690,6 +770,24 @@ def filter_venues(
         venue_themes = [str(x).strip().lower() for x in (v.get("themes") or [])]
         if category != "brunch" and theme and venue_themes and theme not in venue_themes:
             continue
+
+        # Enforce a hard budget ceiling for cost-bearing categories based on price_tier.
+        if max_price_tier is not None and category in {
+            "dining",
+            "brunch",
+            "nightlife",
+            "activity",
+            "golf",
+            "spa",
+            "pool",
+        }:
+            try:
+                pt = int(v.get("price_tier", 9))
+            except (TypeError, ValueError):
+                pt = 9
+            if pt > max_price_tier:
+                continue
+
         vv = [x.lower() for x in (v.get("vibes") or [])]
         if vibes:
             def vibe_match(user_v: str, venue_vibes: List[str]) -> bool:
@@ -1118,6 +1216,7 @@ def compare_plans(plan_a: List[Dict[str, Any]], plan_b: List[Dict[str, Any]], ve
     Compare Plan A and Plan B to generate trade-off metrics.
     Returns a dict with comparison data.
     """
+
     def get_venue_price_tier(slot: Dict[str, Any]) -> int:
         venue = slot.get("venue") or {}
         venue_name = venue.get("name", "")
@@ -1127,13 +1226,13 @@ def compare_plans(plan_a: List[Dict[str, Any]], plan_b: List[Dict[str, Any]], ve
             if v.get("name") == venue_name:
                 return v.get("price_tier", 0)
         return 0
-    
+
     def calculate_avg_price_tier(plan: List[Dict[str, Any]]) -> float:
         price_tiers = [get_venue_price_tier(slot) for slot in plan if slot.get("venue")]
         if not price_tiers:
             return 0.0
         return sum(price_tiers) / len(price_tiers)
-    
+
     def count_venue_types(plan: List[Dict[str, Any]]) -> Dict[str, int]:
         counts = {}
         for slot in plan:
@@ -1142,27 +1241,54 @@ def compare_plans(plan_a: List[Dict[str, Any]], plan_b: List[Dict[str, Any]], ve
             if category:
                 counts[category] = counts.get(category, 0) + 1
         return counts
-    
+
+    def _tier_to_dollars(avg_tier: float) -> str:
+        """Map price tiers to $, $$, $$$, $$$$ for easier reading."""
+        if avg_tier <= 0:
+            return "N/A"
+        if avg_tier < 1.5:
+            return "$"
+        if avg_tier < 2.5:
+            return "$$"
+        if avg_tier < 3.5:
+            return "$$$"
+        return "$$$$"
+
     avg_tier_a = calculate_avg_price_tier(plan_a)
     avg_tier_b = calculate_avg_price_tier(plan_b)
-    
+
     venues_a = count_venue_types(plan_a)
     venues_b = count_venue_types(plan_b)
-    
+
+    price_icon_a = _tier_to_dollars(avg_tier_a)
+    price_icon_b = _tier_to_dollars(avg_tier_b)
+
     # Estimate budget difference (rough: higher price_tier = higher cost)
-    budget_diff_per_person = int((avg_tier_a - avg_tier_b) * 50)  # Rough estimate
-    
+    # Plan A (premium) should always be more expensive than Plan B (balanced)
+    # Calculate base difference, then enforce minimum $50 per person
+    base_diff = (avg_tier_a - avg_tier_b) * 50
+    budget_diff_per_person = int(base_diff)
+
+    # Ensure minimum $50 difference per person for meaningful step change
+    # If Plan A isn't significantly more expensive, enforce the minimum
+    if budget_diff_per_person < 50:
+        budget_diff_per_person = 50
+
     return {
         "plan_a_avg_price_tier": round(avg_tier_a, 1),
         "plan_b_avg_price_tier": round(avg_tier_b, 1),
+        "plan_a_price_icon": price_icon_a,
+        "plan_b_price_icon": price_icon_b,
         "budget_difference_per_person": budget_diff_per_person,
         "plan_a_label": "Premium Experience",
         "plan_b_label": "Balanced & Value",
         "key_differences": [
-            f"Plan A focuses on higher-end venues (avg tier {avg_tier_a:.1f})",
-            f"Plan B balances quality and value (avg tier {avg_tier_b:.1f})",
-            f"Estimated difference: ${abs(budget_diff_per_person)}/person" if budget_diff_per_person != 0 else "Similar budget impact",
+            f"Plan A focuses on higher-end venues ({price_icon_a})",
+            f"Plan B balances quality and value ({price_icon_b})",
+            f"Estimated difference: ${abs(budget_diff_per_person)}/person",
         ],
+        "venues_a": venues_a,
+        "venues_b": venues_b,
     }
 
 
@@ -1353,14 +1479,20 @@ def build_itinerary(
     transport = filter_venues(venues, theme, vibes, "transport")
     shopping = filter_venues(venues, theme, vibes, "shopping")
     
-    # Apply variant preference: premium prefers higher price_tier, balanced prefers mid-range
+    # Apply variant preference: premium prefers higher price_tier, balanced prefers lower price_tier
     def apply_variant_preference(venue_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        if not venue_list or variant == "balanced":
+        if not venue_list:
             return venue_list
-        # Premium: sort by price_tier descending (higher tier first)
-        # Balanced: keep original order (already filtered by vibes)
+        # Premium: bias toward higher price_tier (3–4) when available
         if variant == "premium":
-            return sorted(venue_list, key=lambda v: v.get("price_tier", 0), reverse=True)
+            high = [v for v in venue_list if int(v.get("price_tier", 0) or 0) >= 3]
+            working = high or venue_list
+            return sorted(working, key=lambda v: v.get("price_tier", 0), reverse=True)
+        # Balanced: bias toward lower price_tier (1–2) when available
+        elif variant == "balanced":
+            low = [v for v in venue_list if int(v.get("price_tier", 0) or 0) <= 2]
+            working = low or venue_list
+            return sorted(working, key=lambda v: v.get("price_tier", 0), reverse=False)
         return venue_list
     
     brunch = apply_variant_preference(brunch)
@@ -1724,7 +1856,7 @@ def get_day_description(theme: str, day_index: int, is_arrival: bool, is_departu
         _, one_liner = _wmpo_day_headline(day_index, is_arrival, is_departure, total_days)
         out = one_liner
     else:
-        out = "Your day in Scottsdale."
+        out = "Your day in Scottsdale. Lean into one or two big moments so the group has a clear anchor for the day."
 
     api_key = os.getenv("OPENAI_API_KEY") or (st.secrets.get("openai", {}) or {}).get("api_key", "")
     if api_key and theme in ("spring_training", "wmpo", "bachelorette"):
@@ -1735,10 +1867,10 @@ def get_day_description(theme: str, day_index: int, is_arrival: bool, is_departu
             r = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": f"You write exactly two short sentences (each under 25 words) describing this upcoming day of a Scottsdale {theme_desc}. No bullet points. Output only two sentences separated by a newline."},
+                    {"role": "system", "content": f"You write 2–4 short, enthusiastic sentences (each under 25 words) describing this upcoming day of a Scottsdale {theme_desc}. Call out specific activities or vibes. No bullet points. Output only the sentences, separated by newlines."},
                     {"role": "user", "content": f"Day {day_index + 1} of {total_days}. Arrival: {is_arrival}, Departure: {is_departure}. Current draft: {out}"},
                 ],
-                max_tokens=120,
+                max_tokens=200,
             )
             llm_out = (r.choices[0].message.content or "").strip()
             if llm_out:
@@ -1778,9 +1910,9 @@ def theme_summary(theme: str, vibes: List[str], arrival: date, departure: date, 
 def _summary_system_prompt(theme: str) -> str:
     theme = (theme or "").lower()
     highlights_instruction = (
-        "Write 2–3 sentences (2–3 lines) that call out the big highlights from the itinerary: "
+        "Write 4–6 enthusiastic sentences (4–6 lines) that call out the big highlights from the itinerary: "
         "e.g. golf (if present), the baseball game and which team (if present), spa or pool party (if present). "
-        "Use the exact team/venue names from the itinerary. No bullet points."
+        "Use the exact team/venue names from the itinerary. Add a line or two about the vibe and why this trip will be great. No bullet points."
     )
     if theme == "bachelorette":
         return (
@@ -1816,7 +1948,8 @@ def generate_enthusiastic_summary(base_summary: str, itinerary_by_day: str, them
         system = _summary_system_prompt(theme)
         user = (
             "Write the upcoming trip summary in the tone described. "
-            "Give 2–3 lines with the big highlights: golf, the baseball game (name the team), spa or pool party—using what’s actually in the itinerary.\n\n"
+            "Give 4–6 enthusiastic lines with the big highlights: golf, the baseball game (name the team), spa or pool party—using what’s actually in the itinerary. "
+            "Add a line or two about the vibe and why this trip will be memorable.\n\n"
             f"Base context: {base_summary}\n\nItinerary by day:\n{itinerary_by_day}"
         )
         r = client.chat.completions.create(
@@ -1825,7 +1958,7 @@ def generate_enthusiastic_summary(base_summary: str, itinerary_by_day: str, them
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            max_tokens=400,
+            max_tokens=600,
         )
         text = (r.choices[0].message.content or "").strip()
         return text if text else base_summary
@@ -2106,6 +2239,7 @@ def _render_one_slot(s: Dict[str, Any], venues: List[Dict[str, Any]], theme: str
         slot_category = vcat
 
     providers = category_reservation_providers(slot_category, vname)
+    blurb = venue_short_blurb(v) if not is_skipped else ""
     travel_note = ""
     if (s.get("type") or "").startswith("Transport") and s.get("travel_minutes"):
         from_n = s.get("from_venue_name") or "previous stop"
@@ -2116,6 +2250,14 @@ def _render_one_slot(s: Dict[str, Any], venues: List[Dict[str, Any]], theme: str
     left, right = st.columns([0.82, 0.18])
     
     with left:
+        # Combine booking hint and venue blurb into a single, easy-to-read line.
+        if blurb:
+            if providers:
+                providers_line = f"{providers} • {blurb}"
+            else:
+                providers_line = blurb
+        else:
+            providers_line = providers
         st.markdown(
             f"""
             <div class="card slot-card" style="margin-top: -14px;">
@@ -2126,7 +2268,7 @@ def _render_one_slot(s: Dict[str, Any], venues: List[Dict[str, Any]], theme: str
                 </div>
               </div>
               <div style="margin-top:10px; font-size:20px; font-weight:800;">{vname}</div>
-              <div style="margin-top:6px; opacity:0.9;">{providers}{travel_note}</div>
+              <div style="margin-top:6px; opacity:0.9;">{providers_line}{travel_note}</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -2425,13 +2567,13 @@ if current_page == "welcome":
         with mode_col1:
             solo_selected = planning_mode == "solo"
             solo_style = "primary" if solo_selected else "secondary"
-            if st.button("🗺️ Solo Trip Planner", key="btn_mode_solo", use_container_width=True, type=solo_style):
+            if st.button("👤 Solo Trip Planner", key="btn_mode_solo", use_container_width=True, type=solo_style):
                 st.session_state.planning_mode = "solo"
                 st.rerun()
         with mode_col2:
             group_selected = planning_mode == "group"
             group_style = "primary" if group_selected else "secondary"
-            if st.button("👥 Group Trip Planner", key="btn_mode_group", use_container_width=True, type=group_style):
+            if st.button("👨‍👩‍👧‍👦 Group Trip Planner", key="btn_mode_group", use_container_width=True, type=group_style):
                 st.session_state.planning_mode = "group"
                 st.rerun()
         
@@ -3271,7 +3413,7 @@ elif current_page == "itinerary":
             st.markdown(
                 f'<div class="card" style="text-align:center; padding:20px;">'
                 f'<h3 style="margin:0 0 10px 0;">Plan A: {comparison.get("plan_a_label", "Premium Experience")}</h3>'
-                f'<p style="margin:0; opacity:0.9;">Higher-end venues<br/>Avg tier: {comparison.get("plan_a_avg_price_tier", "N/A")}</p>'
+                f'<p style="margin:0; opacity:0.9;">Higher-end venues<br/>Price level: {comparison.get("plan_a_price_icon", "$$$")}</p>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
@@ -3279,7 +3421,7 @@ elif current_page == "itinerary":
             st.markdown(
                 f'<div class="card" style="text-align:center; padding:20px;">'
                 f'<h3 style="margin:0 0 10px 0;">Plan B: {comparison.get("plan_b_label", "Balanced & Value")}</h3>'
-                f'<p style="margin:0; opacity:0.9;">Balanced quality & value<br/>Avg tier: {comparison.get("plan_b_avg_price_tier", "N/A")}</p>'
+                f'<p style="margin:0; opacity:0.9;">Balanced quality & value<br/>Price level: {comparison.get("plan_b_price_icon", "$$")}</p>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
@@ -3524,3 +3666,10 @@ elif current_page == "confirmed":
     with dl3:
         st.download_button("Save as PDF (open HTML, then Print → Save as PDF)", data=html_data, mime="text/html", file_name="playbook_plan_print.html", key="dl_pdf_confirmed", use_container_width=True)
     st.caption("Open the HTML file in a browser, then File → Print → Save as PDF.")
+
+# Footer: attribution (shown on all pages)
+st.markdown("---")
+st.markdown(
+    "<small>Educational demo only. Logos and event imagery are property of their respective owners. Not affiliated with WM Phoenix Open, MLB, or Cactus League.</small>",
+    unsafe_allow_html=True,
+)

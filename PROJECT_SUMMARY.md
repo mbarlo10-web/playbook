@@ -88,3 +88,9 @@ PlayBook is a **group trip planning app** for Scottsdale-area trips (Spring Trai
 - **Option 3:** Use “Export” in your editor (e.g. “Markdown: Export to PDF” or “Export to HTML”) and send the exported file.
 
 If you want a shorter “one-pager” or a slide-style version, that can be added as a separate section or file.
+
+---
+
+## Attribution
+
+This project is for **academic and demonstration purposes only**. Some imagery and team logos (WM Phoenix Open, MLB, Cactus League) are from official sources for illustrative, non-commercial use. All trademarks and images remain the property of their respective owners. This project is not affiliated with, endorsed by, or sponsored by those organizations. See the repo [README](README.md#image--trademark-notice) and [ASSET_ATTRIBUTION.md](ASSET_ATTRIBUTION.md) for details.
